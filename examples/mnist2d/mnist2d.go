@@ -40,9 +40,9 @@ func main() {
 
 	// Create the t-SNE dimensionality reductor and embed the MNIST data in 2D
 	frames := []grob.Frame{}
-	t := tsne.NewTSNE(2, perplexity, learningRate, 20, true)
+	t := tsne.NewTSNE(2, perplexity, learningRate, 300, true)
 	t.EmbedData(Xt, func(iter int, divergence float64, embedding mat.Matrix) bool {
-		if iter%2 == 0 {
+		if iter%10 == 0 {
 			fmt.Printf("Iteration %d: divergence is %v\n", iter, divergence)
 			frames = append(frames, buildFrame(t.Y, Y, strconv.Itoa(iter)))
 		}
