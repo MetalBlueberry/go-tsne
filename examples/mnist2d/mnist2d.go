@@ -5,18 +5,18 @@ package main
 
 import (
 	"fmt"
-	"math/rand"
 	"os"
-	"time"
+	"strconv"
 
+	grob "github.com/MetalBlueberry/go-plotly/generated/v2.31.1/graph_objects"
+	"github.com/MetalBlueberry/go-plotly/pkg/offline"
+	"github.com/MetalBlueberry/go-plotly/pkg/types"
 	"github.com/danaugrs/go-tsne/tsne"
 	"github.com/sjwhitworth/golearn/pca"
 	"gonum.org/v1/gonum/mat"
-	"gonum.org/v1/plot"
-	"gonum.org/v1/plot/plotter"
-	"gonum.org/v1/plot/plotutil"
-	"gonum.org/v1/plot/vg"
 )
+
+// https://plotly.com/javascript/gapminder-example/
 
 func main() {
 
@@ -24,11 +24,7 @@ func main() {
 	pcaComponents := 50
 	perplexity := float64(300)
 	learningRate := float64(300)
-	fmt.Println("Hi! Check the 'output' directory to see the plots generated while t-SNE runs.")
 	fmt.Printf("PCA Components = %v\nPerplexity = %v\nLearning Rate = %v\n\n", pcaComponents, perplexity, learningRate)
-
-	// Initialize the random seed
-	rand.Seed(int64(time.Now().Nanosecond()))
 
 	// Load a subset of MNIST with 2500 records
 	X, Y := LoadMNIST()
@@ -43,54 +39,139 @@ func main() {
 	os.Mkdir("output", 0770)
 
 	// Create the t-SNE dimensionality reductor and embed the MNIST data in 2D
-	t := tsne.NewTSNE(2, perplexity, learningRate, 300, true)
+	frames := []grob.Frame{}
+	t := tsne.NewTSNE(2, perplexity, learningRate, 20, true)
 	t.EmbedData(Xt, func(iter int, divergence float64, embedding mat.Matrix) bool {
-		if iter%10 == 0 {
+		if iter%2 == 0 {
 			fmt.Printf("Iteration %d: divergence is %v\n", iter, divergence)
-			plotY2D(t.Y, Y, fmt.Sprintf("output/tsne-1-iteration-%d.png", iter))
+			frames = append(frames, buildFrame(t.Y, Y, strconv.Itoa(iter)))
 		}
 		return false
 	})
+
+	fig := plotly2D(t.Y, Y, frames)
+	offline.Serve(fig)
 }
 
-// plotY2D plots the 2D embedding Y and saves an image of the plot with the specified filename.
-func plotY2D(Y, labels mat.Matrix, filename string) {
+type Serie struct {
+	X, Y []float64
+}
 
-	// Create a plotter for each of the 10 digit classes
+func getSeries(Y, labels mat.Matrix) []*Serie {
 	classes := []float64{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}
-	classPlotters := make([]plotter.XYs, len(classes))
+	data := make([]*Serie, len(classes))
 	for i := range classes {
-		classPlotters[i] = make(plotter.XYs, 0)
+		data[i] = &Serie{
+			X: []float64{},
+			Y: []float64{},
+		}
 	}
 
-	// Populate the class plotters with their respective data
 	n, _ := Y.Dims()
 	for i := 0; i < n; i++ {
 		label := int(labels.At(i, 0))
-		classPlotters[label] = append(classPlotters[label], plotter.XY{Y.At(i, 0), Y.At(i, 1)})
+		data[label].X = append(data[label].X, Y.At(i, 0))
+		data[label].Y = append(data[label].Y, Y.At(i, 1))
+	}
+	return data
+}
+
+func buildFrame(Y, labels mat.Matrix, name string) grob.Frame {
+	series := getSeries(Y, labels)
+	data := make([]types.Trace, len(series))
+	for i, serie := range series {
+		data[i] = &grob.Scatter{
+			Name: types.S(strconv.Itoa(i)),
+			X:    types.DataArray(serie.X),
+			Y:    types.DataArray(serie.Y),
+		}
 	}
 
-	// Create a plot and update title and axes
-	p := plot.New()
-	p.Title.Text = "t-SNE MNIST"
-	p.X.Label.Text = "X"
-	p.Y.Label.Text = "Y"
+	f := grob.Frame{
+		Data: data,
+		Name: types.S(name),
+	}
+	return f
 
-	// Convert plotters to array of empty interfaces
-	classPlottersEI := make([]interface{}, len(classes))
-	for i := range classes {
-		classPlottersEI[i] = classPlotters[i]
+}
+
+func plotly2D(Y, labels mat.Matrix, frames []grob.Frame) *grob.Fig {
+	series := getSeries(Y, labels)
+	data := make([]types.Trace, len(series))
+	for i, serie := range series {
+		data[i] = &grob.Scatter{
+			Name: types.S(strconv.Itoa(i)),
+			X:    types.DataArray(serie.X),
+			Y:    types.DataArray(serie.Y),
+			Mode: grob.ScatterModeMarkers,
+		}
 	}
 
-	// Add class plotters to the plot
-	err := plotutil.AddScatters(p, classPlottersEI...)
-	if err != nil {
-		panic(err)
+	fig := &grob.Fig{
+		Data: data,
+		Layout: &grob.Layout{
+			Height: types.N(500),
+			Title:  &grob.LayoutTitle{Text: "t-SNE MNIST"},
+			Xaxis: &grob.LayoutXaxis{
+				Title: &grob.LayoutXaxisTitle{
+					Text: "X",
+				},
+			},
+			Yaxis: &grob.LayoutYaxis{
+				Title: &grob.LayoutYaxisTitle{
+					Text: "Y",
+				},
+			},
+			Updatemenus: []grob.LayoutUpdatemenu{
+				{
+					Type:       "buttons",
+					Showactive: types.False,
+					Buttons: []grob.LayoutUpdatemenuButton{
+						{
+							Label:  "Play",
+							Method: "animate",
+							Args: []*ButtonArgs{
+								nil,
+								{
+									Mode:        "immediate",
+									FromCurrent: true,
+									Frame: map[string]interface{}{
+										"duration": 200,
+										"redraw":   false,
+									},
+									Transition: map[string]interface{}{
+										"duration": 200,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		Config: &grob.Config{
+			Responsive: types.True,
+		},
+		Frames: frames,
+		Animation: &grob.Animation{
+			Frame: &grob.AnimationFrame{
+				Duration: types.N(100),
+				Redraw:   types.True,
+			},
+			Transition: &grob.AnimationTransition{
+				Duration: types.N(50),
+				Easing:   grob.AnimationTransitionEasingLinear,
+			},
+		},
 	}
 
-	// Save the plot to a PNG file
-	err = p.Save(8*vg.Inch, 8*vg.Inch, filename)
-	if err != nil {
-		panic(err)
-	}
+	return fig
+}
+
+// Define the ButtonArgs type
+type ButtonArgs struct {
+	Frame       map[string]interface{} `json:"frame,omitempty"`
+	Transition  map[string]interface{} `json:"transition,omitempty"`
+	FromCurrent bool                   `json:"fromcurrent,omitempty"`
+	Mode        string                 `json:"mode,omitempty"`
 }
