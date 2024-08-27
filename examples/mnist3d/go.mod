@@ -14,8 +14,11 @@ require (
 )
 
 require (
+	github.com/golang/mock v1.6.0 // indirect
+	github.com/huandu/xstrings v1.5.0 // indirect
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
 	golang.org/x/sys v0.24.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-require github.com/MetalBlueberry/go-plotly v0.6.2-0.20240827072729-c72e96e3021a
+require github.com/MetalBlueberry/go-plotly v0.7.0
